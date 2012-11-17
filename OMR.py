@@ -12,6 +12,7 @@ class OMR() :
         self.PI = 3.1415926535897932384626433832795
         self.prevTargetPosList = None     
         self.prevJntAngleList = None
+        self.prevSrcJntAngleList = None
         return    
     
     def getLocalAxes(self, eulerRotAngle, isEulerAngle=True):        
@@ -51,8 +52,8 @@ class OMR() :
         effectiveJntDic={}
         for i in range(len(endEffectorList)):
             effectiveJntDic[endEffectorList[i]] = (self.parentJnts(endEffectorList[i]))
-            jntList.extend(self.parentJnts(endEffectorList[i]))
-        jntList = list(set(jntList))
+            jntList.extend(self.parentJnts(endEffectorList[i]))            
+        jntList = list(set(jntList))        
         return jntList, effectiveJntDic   
     
     def clampMagDiscrete(self):
@@ -132,25 +133,29 @@ class OMR() :
             e = self.getDisplaceError(targetPosMat, tempTargetPosMat)
             displaceTargetPos = displaceTargetPos+e            
             mc.xform(self.jntList[i], eu=True, r=True, ro=[-degX, -degY, -degZ])
-            self.prevTargetPosList = targetPosMat        
+            self.prevTargetPosList = targetPosMat
+        
+        #source joint list problem - should match src-target jnt list
+        self.srcJntList = [u'joint4', u'joint5', u'joint2', u'joint3', u'joint1']
         
         srcJntAngles = np.zeros((len(self.srcJntList*3)))
         for i in range(len(self.srcJntList)):
             rot = mc.xform(self.srcJntList[i], eu=True, ro=True, r=True, q=True)
             srcJntAngles[3*i] = rot[0]*(self.PI/180.0)
             srcJntAngles[3*i+1] = rot[1]*(self.PI/180.0)
-            srcJntAngles[3*i+2] = rot[2]*(self.PI/180.0)
-                
-        tempMat = np.identity(len(self.jntList)*3,float) - np.dot(J_inverse, J)
+            srcJntAngles[3*i+2] = rot[2]*(self.PI/180.0)        
         
-        if currentTime == 1:
-            secondaryJntAngles = np.dot(tempMat, srcJntAngles - np.dot(J_inverse,self.getDisplaceError(targetPosMat, endEffectorPosMat)))
+        if self.prevSrcJntAngleList == None:
+            displaceSrcJntAngle = np.zeros(len(self.jntList)*3)
         else :
-            secondaryJntAngles = np.dot(tempMat, srcJntAngles - (self.prevJntAngleList + np.dot(J_inverse,self.getDisplaceError(self.prevTargetPosList, targetPosMat))))              
+            displaceSrcJntAngle = srcJntAngles - self.prevSrcJntAngleList
         
-                
-        jntAngles =  np.dot(J_inverse, displaceTargetPos) 
+        tempMat = np.identity(len(self.jntList)*3,float) - np.dot(J_inverse, J)
+        secondaryJntAngles = np.dot(tempMat, displaceSrcJntAngle)                      
+        jntAngles =  np.dot(J_inverse, displaceTargetPos) + secondaryJntAngles
+         
         self.prevJntAngleList = jntAngles 
+        self.prevSrcJntAngleList = srcJntAngles
         
         for i in range(len(self.jntList)):
             degX = jntAngles[3*i]*(180.0/self.PI)
@@ -163,7 +168,6 @@ a = OMR(['locator1'],['joint12'], ['joint6'])
 #a = OMR(['locator1','locator2','locator3','locator4'],['joint5','joint9','joint13','joint17'])
 
 #a.ikSolver(['pSphere1', 'pSphere2'], [])
-a.ikSolver(1)
 for i in range(200):
     mc.currentTime(i+1)
     a.ikSolver(mc.currentTime(q=True))    
